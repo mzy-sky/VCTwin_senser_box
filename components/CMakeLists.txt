@@ -1,10 +1,14 @@
 set(src_dirs
             LORA
-            DHT11)
+            DHT11
+            SPI
+            LCD)
 
 set(include_dirs
             LORA
-            DHT11)
+            DHT11
+            SPI
+            LCD)
 
 set(requires
             driver
