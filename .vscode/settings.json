@@ -15,5 +15,6 @@
     "--background-index",
     "--query-driver=**",
     "--compile-commands-dir=d:\\DevFolder\\vscode\\esp32\\s3\\VCTwin_senser_box\\build"
-  ]
+  ],
+  "idf.flashType": "UART"
 }

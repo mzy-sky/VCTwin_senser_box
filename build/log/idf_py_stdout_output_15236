@@ -1,9 +1,0 @@
-Command: ninja confserver
-[0/1] Re-running CMake...
--- Minimal build - OFF
--- ccache will be used for faster recompilation
--- Building ESP-IDF components for target esp32s3
--- ESP-TEE is currently supported only on the esp32c6;esp32h2;esp32c5 SoCs
--- Configuring incomplete, errors occurred!
-FAILED: build.ninja 
-D:\Espressif\Tool\tools\cmake\3.30.2\bin\cmake.exe --regenerate-during-build -SD:\DevFolder\vscode\esp32\s3\VCTwin_senser_box -BD:\DevFolder\vscode\esp32\s3\VCTwin_senser_box\build

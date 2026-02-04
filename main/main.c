@@ -40,8 +40,11 @@ void app_main(void)
         uart_write_bytes(UART_NUM_1, (const char*)sand_data, len);
         vTaskDelay(1000);  // 每秒发送一次
 
+        printf("Data sent: %s", sand_data);
+
         // 清除发送区
         uart_flush(UART_NUM_1);
+
     };
     
 
