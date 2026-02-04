@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "VCTwin_senser_box",
-    "project_version":    "e7f3610",
+    "project_version":    "139a73e-dirty",
     "project_path":       "D:/DevFolder/vscode/esp32/s3/VCTwin_senser_box",
     "idf_path":           "D:/Espressif/container/v5.5.2/esp-idf",
     "build_dir":          "D:/DevFolder/vscode/esp32/s3/VCTwin_senser_box/build",

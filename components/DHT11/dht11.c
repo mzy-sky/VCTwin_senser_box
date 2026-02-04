@@ -3,6 +3,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+
+
 void dht11_init(void)
 {
     // 不使用中断
@@ -20,84 +22,63 @@ void dht11_init(void)
     gpio_config(&dht11_cfg);
 }
 
-// 微秒延时函数
-static void dht11_delay_us(uint32_t us)
-{
-    uint32_t start = esp_timer_get_time();
-    while (esp_timer_get_time() - start < us);
-}
-
-// 等待引脚状态改变，超时返回-1
-static int dht11_wait_pin(uint32_t pin, uint32_t level, uint32_t timeout_us)
-{
-    uint32_t start = esp_timer_get_time();
-    while (gpio_get_level(pin) != level)
-    {
-        if (esp_timer_get_time() - start > timeout_us)
-            return -1;
-    }
-    return 0;
-}
-
+// 读取DHT11数据
 int dht11_read_data(float* temperature, float* humidity)
 {
     uint8_t data[5] = {0};
-    uint32_t bit_count = 0;
+    uint8_t byte_index = 0;
+    uint8_t bit_index = 7;
 
-    // 1. MCU发送启动信号：拉低至少18ms
+    // 发送起始信号
     gpio_set_direction(GPIO_NUM_4, GPIO_MODE_OUTPUT);
     gpio_set_level(GPIO_NUM_4, 0);
-    dht11_delay_us(20000);  // 拉低20ms
+    vTaskDelay(pdMS_TO_TICKS(20)); // 拉低至少18ms
+    gpio_set_level(GPIO_NUM_4, 1);
+    vTaskDelay(30); // 拉高20-40us
 
-    // 2. MCU释放引脚，设为输入（通过上拉电阻拉高）
+    // 切换到输入模式，等待DHT11响应
     gpio_set_direction(GPIO_NUM_4, GPIO_MODE_INPUT);
 
-    // 3. 等待DHT11响应：DHT11拉低80us
-    if (dht11_wait_pin(GPIO_NUM_4, 0, 100) < 0)
-        return -1;  // 传感器无响应
-
-    // 4. 等待DHT11拉高80us（响应完成）
-    if (dht11_wait_pin(GPIO_NUM_4, 1, 100) < 0)
-        return -1;
-
-    // 5. 等待DHT11拉低（开始发送数据）
-    if (dht11_wait_pin(GPIO_NUM_4, 0, 100) < 0)
-        return -1;
-
-    // 6. 读取40bit数据
-    for (bit_count = 0; bit_count < 40; bit_count++)
-    {
-        // 等待引脚拉高（数据位开始）
-        if (dht11_wait_pin(GPIO_NUM_4, 1, 100) < 0)
-            return -1;
-
-        uint32_t start = esp_timer_get_time();
-
-        // 等待引脚拉低（数据位结束）
-        if (dht11_wait_pin(GPIO_NUM_4, 0, 100) < 0)
-            return -1;
-
-        uint32_t duration = esp_timer_get_time() - start;
-
-        // 若高电平时长 > 50us，则为bit 1，否则为bit 0
-        uint8_t bit = (duration > 50) ? 1 : 0;
-
-        // 将bit存入数据数组
-        data[bit_count / 8] = (data[bit_count / 8] << 1) | bit;
+    // 等待DHT11拉低信号
+    vTaskDelay(80); // 80ms
+    if (gpio_get_level(GPIO_NUM_4) != 0) {
+        return -1; // 响应失败
     }
 
-    // 7. 校验数据（前4字节和与校验码比较）
-    uint8_t checksum = data[0] + data[1] + data[2] + data[3];
-    if (checksum != data[4])
-        return -2;  // 校验失败
+    // 等待DHT11拉高信号
+    vTaskDelay(80); // 80ms
+    if (gpio_get_level(GPIO_NUM_4) != 1) {
+        return -1; // 响应失败
+    }
 
-    // 8. 提取温度和湿度
-    // data[0]：湿度整数部分
-    // data[1]：湿度小数部分
-    // data[2]：温度整数部分
-    // data[3]：温度小数部分
-    *humidity = (float)data[0] + (float)data[1] / 256.0f;
-    *temperature = (float)data[2] + (float)data[3] / 256.0f;
+    // 读取40位数据
+    for (int i = 0; i < 40; i++) {
+        // 等待拉低信号
+        while (gpio_get_level(GPIO_NUM_4) == 0);
 
-    return 0;  // 读取成功
+        // 计时拉高信号持续时间
+        vTaskDelay(40); // 40ms
+        if (gpio_get_level(GPIO_NUM_4) == 1) {
+            data[byte_index] |= (1 << bit_index); // 读到1
+        }
+        // 等待拉高信号结束
+        while (gpio_get_level(GPIO_NUM_4) == 1);
+
+        if (bit_index == 0) {
+            bit_index = 7;
+            byte_index++;
+        } else {
+            bit_index--;
+        }
+    }
+
+    // 校验和验证
+    if (data[4] != ((data[0] + data[1] + data[2] + data[3]) & 0xFF)) {
+        return -2; // 校验失败
+    }
+
+    // 提取温度和湿度数据
+    *humidity = data[0] + data[1] * 0.1f;
+    *temperature = data[2] + data[3] * 0.1f;
+    return 0; // 成功
 }
