@@ -8,6 +8,8 @@
 #include "lcd.h"
 #include "spi.h"
 
+
+
 void app_main()
 {
     DHT11_init(GPIO_NUM_4);
