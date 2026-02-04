@@ -1,109 +1,120 @@
 #include "dht11.h"
-#include "driver/gpio.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "esp_timer.h"
+#include "rom/ets_sys.h"
+#include <string.h>
 
+// 微秒级延时封装（ESP-IDF推荐使用ets_delay_us，精准度满足单总线需求）
+#define DHT11_DELAY_US(us)  ets_delay_us(us)
 
+/**
+ * @brief  释放总线，设置引脚为输入模式
+ */
+static void dht11_bus_release(void)
+{
+    gpio_set_direction(DHT11_GPIO_PIN, GPIO_MODE_INPUT);
+}
+
+/**
+ * @brief  拉低总线，设置引脚为输出低电平
+ */
+static void dht11_bus_pull_down(void)
+{
+    gpio_set_direction(DHT11_GPIO_PIN, GPIO_MODE_OUTPUT_OD);
+    gpio_set_level(DHT11_GPIO_PIN, 0);
+}
+
+/**
+ * @brief  等待总线电平变化，带超时检测
+ * @param  level 等待的目标电平
+ * @param  timeout_us 超时时间（微秒）
+ * @return 成功返回0，超时返回-1
+ */
+static int8_t dht11_wait_level(uint8_t level, uint32_t timeout_us)
+{
+    uint32_t start = esp_timer_get_time();
+    while (gpio_get_level(DHT11_GPIO_PIN) != level)
+    {
+        if (esp_timer_get_time() - start > timeout_us)
+        {
+            return -1; // 超时
+        }
+        DHT11_DELAY_US(1);
+    }
+    return 0;
+}
 
 void dht11_init(void)
 {
-    // 不使用中断
-    // DHT11连接在GPIO4
-    // 输入输出模式
-    // 使能上拉
-    // 禁用下拉
-    gpio_config_t dht11_cfg = {
-        .intr_type = GPIO_INTR_DISABLE,
-        .pin_bit_mask = (1ULL << GPIO_NUM_4),
-        .mode = GPIO_MODE_INPUT_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    };
-    gpio_config(&dht11_cfg);
+    // 复位GPIO配置
+    gpio_reset_pin(DHT11_GPIO_PIN);
+    // 初始化为输入模式，释放总线
+    dht11_bus_release();
+    // 初始状态拉高总线
+    gpio_set_level(DHT11_GPIO_PIN, 1);
 }
 
-// 读取DHT11数据，使用 esp_timer_get_time() 精确到微秒
-int dht11_read_data(float* temperature, float* humidity)
+dht11_err_t dht11_read(dht11_data_t *data)
 {
-    if (!temperature || !humidity) return ESP_ERR_INVALID_ARG;
-
-    const gpio_num_t pin = GPIO_NUM_4;
-    uint8_t data[5] = {0};
-    uint8_t byte_index = 0;
-    uint8_t bit_index = 7;
-    const int64_t bit_high_threshold_us = 50; // 高电平大于此为1
-    const int64_t resp_timeout_us = 1000 * 1000; // 1s 超时保护
-
-    // 发送起始信号：拉低至少18ms -> 拉高20-40us -> 切换为输入
-    gpio_set_direction(pin, GPIO_MODE_OUTPUT);
-    gpio_set_level(pin, 0);
-    // 延迟>=18ms（使用esp_timer精确延迟）
-    int64_t t0 = esp_timer_get_time();
-    while (esp_timer_get_time() - t0 < 18000) { ; }
-    gpio_set_level(pin, 1);
-    // 等待约30-40us
-    t0 = esp_timer_get_time();
-    while (esp_timer_get_time() - t0 < 40) { ; }
-
-    gpio_set_direction(pin, GPIO_MODE_INPUT);
-
-    int64_t start = esp_timer_get_time();
-    // 等待设备拉低（应答开始：约80us低）
-    while (gpio_get_level(pin) == 1) {
-        if (esp_timer_get_time() - start > resp_timeout_us) return ESP_ERR_TIMEOUT;
+    // 入参校验
+    if (data == NULL)
+    {
+        return DHT11_ERR_TIMEOUT;
     }
-    // 等待设备拉高（应答高约80us）
-    start = esp_timer_get_time();
-    while (gpio_get_level(pin) == 0) {
-        if (esp_timer_get_time() - start > resp_timeout_us) return ESP_ERR_TIMEOUT;
-    }
-    // 等待设备再次拉低，之后开始发送数据
-    start = esp_timer_get_time();
-    while (gpio_get_level(pin) == 1) {
-        if (esp_timer_get_time() - start > resp_timeout_us) return ESP_ERR_TIMEOUT;
+    uint8_t buf[5] = {0}; // 存储40bit原始数据（5字节）
+
+    // 1. 主机发送起始信号：拉低18~20ms
+    dht11_bus_pull_down();
+    DHT11_DELAY_US(18000);
+
+    // 2. 主机拉高总线20~40us，等待传感器响应
+    dht11_bus_release();
+    DHT11_DELAY_US(30);
+
+    // 3. 检测传感器响应信号（低电平80us）
+    if (dht11_wait_level(0, 100) != 0)
+    {
+        return DHT11_ERR_NO_RESPONSE;
     }
 
-    // 读取40位数据
-    for (int i = 0; i < 40; i++) {
-        // 等待低电平开始（每位前约50us低电平）
-        start = esp_timer_get_time();
-        while (gpio_get_level(pin) == 1) {
-            if (esp_timer_get_time() - start > resp_timeout_us) return ESP_ERR_TIMEOUT;
+    // 检测响应高电平80us
+    if (dht11_wait_level(1, 100) != 0)
+    {
+        return DHT11_ERR_NO_RESPONSE;
+    }
+
+    // 4. 读取40bit数据
+    for (uint8_t i = 0; i < 40; i++)
+    {
+        // 等待数据位起始低电平
+        if (dht11_wait_level(0, 50) != 0)
+        {
+            return DHT11_ERR_TIMEOUT;
         }
 
-        // 等待高电平开始
-        start = esp_timer_get_time();
-        while (gpio_get_level(pin) == 0) {
-            if (esp_timer_get_time() - start > resp_timeout_us) return ESP_ERR_TIMEOUT;
-        }
+        // 读取高电平持续时间，判断是0还是1
+        uint32_t start = esp_timer_get_time();
+        dht11_wait_level(1, 50);
+        uint32_t duration = esp_timer_get_time() - start;
 
-        // 高电平开始，计时其持续时间
-        int64_t high_start = esp_timer_get_time();
-        while (gpio_get_level(pin) == 1) {
-            if (esp_timer_get_time() - high_start > resp_timeout_us) return ESP_ERR_TIMEOUT;
-        }
-        int64_t high_end = esp_timer_get_time();
-        int64_t high_duration = high_end - high_start; // 单位us
-
-        if (high_duration > bit_high_threshold_us) {
-            data[byte_index] |= (1 << bit_index);
-        }
-
-        if (bit_index == 0) {
-            bit_index = 7;
-            byte_index++;
-        } else {
-            bit_index--;
+        // 左移缓存，写入数据位：>28us为1，≤28us为0
+        buf[i / 8] <<= 1;
+        if (duration > 28)
+        {
+            buf[i / 8] |= 1;
         }
     }
 
-    // 校验和验证
-    if (data[4] != ((data[0] + data[1] + data[2] + data[3]) & 0xFF)) {
-        return ESP_ERR_INVALID_CRC;
+    // 5. 校验和验证：前4字节之和等于第5字节为有效数据
+    if ((buf[0] + buf[1] + buf[2] + buf[3]) != buf[4])
+    {
+        return DHT11_ERR_CRC;
     }
 
-    // 提取温湿度（DHT11 高字节整数，低字节小数，通常低字节为0）
-    *humidity = data[0] + data[1] * 0.1f;
-    *temperature = data[2] + data[3] * 0.1f;
-    return ESP_OK;
+    // 6. 解析数据到结构体
+    data->humidity_int = buf[0];
+    data->humidity_dec = buf[1];
+    data->temp_int = buf[2];
+    data->temp_dec = buf[3];
+
+    return DHT11_OK;
 }

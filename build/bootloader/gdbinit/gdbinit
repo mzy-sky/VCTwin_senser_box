@@ -1,0 +1,2 @@
+source D:/DevFolder/vscode/esp32/s3/VCTwin_senser_box/build/bootloader/gdbinit/symbols
+source D:/DevFolder/vscode/esp32/s3/VCTwin_senser_box/build/bootloader/gdbinit/connect
