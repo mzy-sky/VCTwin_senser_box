@@ -1,0 +1,19 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.espIdfPathWin": "d:\\Espressif\\container\\v5.5.2\\esp-idf",
+  "idf.pythonInstallPath": "d:\\Espressif\\Tool\\tools\\idf-python\\3.11.2\\python.exe",
+  "idf.openOcdConfigs": [
+    "board/esp32s3-builtin.cfg"
+  ],
+  "idf.portWin": "detect",
+  "idf.toolsPathWin": "d:\\Espressif\\Tool",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32s3"
+  },
+  "clangd.path": "d:\\Espressif\\Tool\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=d:\\DevFolder\\vscode\\esp32\\s3\\VCTwin_senser_box\\build"
+  ]
+}
