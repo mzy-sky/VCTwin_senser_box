@@ -1,120 +1,127 @@
-#include "dht11.h"
+
+/*
+ * MIT License
+ * 
+ * Copyright (c) 2018 Michele Biondi
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+*/
+
 #include "esp_timer.h"
+#include "driver/gpio.h"
 #include "rom/ets_sys.h"
-#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
-// 微秒级延时封装（ESP-IDF推荐使用ets_delay_us，精准度满足单总线需求）
-#define DHT11_DELAY_US(us)  ets_delay_us(us)
+#include "dht11.h"
 
-/**
- * @brief  释放总线，设置引脚为输入模式
- */
-static void dht11_bus_release(void)
-{
-    gpio_set_direction(DHT11_GPIO_PIN, GPIO_MODE_INPUT);
+static gpio_num_t dht_gpio;
+static int64_t last_read_time = -2000000;
+static struct dht11_reading last_read;
+
+static int _waitOrTimeout(uint16_t microSeconds, int level) {
+    int micros_ticks = 0;
+    while(gpio_get_level(dht_gpio) == level) { 
+        if(micros_ticks++ > microSeconds) 
+            return DHT11_TIMEOUT_ERROR;
+        ets_delay_us(1);
+    }
+    return micros_ticks;
 }
 
-/**
- * @brief  拉低总线，设置引脚为输出低电平
- */
-static void dht11_bus_pull_down(void)
-{
-    gpio_set_direction(DHT11_GPIO_PIN, GPIO_MODE_OUTPUT_OD);
-    gpio_set_level(DHT11_GPIO_PIN, 0);
+static int _checkCRC(uint8_t data[]) {
+    if(data[4] == (data[0] + data[1] + data[2] + data[3]))
+        return DHT11_OK;
+    else
+        return DHT11_CRC_ERROR;
 }
 
-/**
- * @brief  等待总线电平变化，带超时检测
- * @param  level 等待的目标电平
- * @param  timeout_us 超时时间（微秒）
- * @return 成功返回0，超时返回-1
- */
-static int8_t dht11_wait_level(uint8_t level, uint32_t timeout_us)
-{
-    uint32_t start = esp_timer_get_time();
-    while (gpio_get_level(DHT11_GPIO_PIN) != level)
-    {
-        if (esp_timer_get_time() - start > timeout_us)
-        {
-            return -1; // 超时
-        }
-        DHT11_DELAY_US(1);
-    }
-    return 0;
+static void _sendStartSignal() {
+    gpio_set_direction(dht_gpio, GPIO_MODE_OUTPUT);
+    gpio_set_level(dht_gpio, 0);
+    ets_delay_us(20 * 1000);
+    gpio_set_level(dht_gpio, 1);
+    ets_delay_us(40);
+    gpio_set_direction(dht_gpio, GPIO_MODE_INPUT);
 }
 
-void dht11_init(void)
-{
-    // 复位GPIO配置
-    gpio_reset_pin(DHT11_GPIO_PIN);
-    // 初始化为输入模式，释放总线
-    dht11_bus_release();
-    // 初始状态拉高总线
-    gpio_set_level(DHT11_GPIO_PIN, 1);
-}
+static int _checkResponse() {
+    /* Wait for next step ~80us*/
+    if(_waitOrTimeout(80, 0) == DHT11_TIMEOUT_ERROR)
+        return DHT11_TIMEOUT_ERROR;
 
-dht11_err_t dht11_read(dht11_data_t *data)
-{
-    // 入参校验
-    if (data == NULL)
-    {
-        return DHT11_ERR_TIMEOUT;
-    }
-    uint8_t buf[5] = {0}; // 存储40bit原始数据（5字节）
-
-    // 1. 主机发送起始信号：拉低18~20ms
-    dht11_bus_pull_down();
-    DHT11_DELAY_US(18000);
-
-    // 2. 主机拉高总线20~40us，等待传感器响应
-    dht11_bus_release();
-    DHT11_DELAY_US(30);
-
-    // 3. 检测传感器响应信号（低电平80us）
-    if (dht11_wait_level(0, 100) != 0)
-    {
-        return DHT11_ERR_NO_RESPONSE;
-    }
-
-    // 检测响应高电平80us
-    if (dht11_wait_level(1, 100) != 0)
-    {
-        return DHT11_ERR_NO_RESPONSE;
-    }
-
-    // 4. 读取40bit数据
-    for (uint8_t i = 0; i < 40; i++)
-    {
-        // 等待数据位起始低电平
-        if (dht11_wait_level(0, 50) != 0)
-        {
-            return DHT11_ERR_TIMEOUT;
-        }
-
-        // 读取高电平持续时间，判断是0还是1
-        uint32_t start = esp_timer_get_time();
-        dht11_wait_level(1, 50);
-        uint32_t duration = esp_timer_get_time() - start;
-
-        // 左移缓存，写入数据位：>28us为1，≤28us为0
-        buf[i / 8] <<= 1;
-        if (duration > 28)
-        {
-            buf[i / 8] |= 1;
-        }
-    }
-
-    // 5. 校验和验证：前4字节之和等于第5字节为有效数据
-    if ((buf[0] + buf[1] + buf[2] + buf[3]) != buf[4])
-    {
-        return DHT11_ERR_CRC;
-    }
-
-    // 6. 解析数据到结构体
-    data->humidity_int = buf[0];
-    data->humidity_dec = buf[1];
-    data->temp_int = buf[2];
-    data->temp_dec = buf[3];
+    /* Wait for next step ~80us*/
+    if(_waitOrTimeout(80, 1) == DHT11_TIMEOUT_ERROR) 
+        return DHT11_TIMEOUT_ERROR;
 
     return DHT11_OK;
+}
+
+static struct dht11_reading _timeoutError() {
+    struct dht11_reading timeoutError = {DHT11_TIMEOUT_ERROR, -1, -1};
+    return timeoutError;
+}
+
+static struct dht11_reading _crcError() {
+    struct dht11_reading crcError = {DHT11_CRC_ERROR, -1, -1};
+    return crcError;
+}
+
+void DHT11_init(gpio_num_t gpio_num) {
+    /* Wait 1 seconds to make the device pass its initial unstable status */
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    dht_gpio = gpio_num;
+}
+
+struct dht11_reading DHT11_read() {
+    /* Tried to sense too son since last read (dht11 needs ~2 seconds to make a new read) */
+    if(esp_timer_get_time() - 2000000 < last_read_time) {
+        return last_read;
+    }
+
+    last_read_time = esp_timer_get_time();
+
+    uint8_t data[5] = {0,0,0,0,0};
+
+    _sendStartSignal();
+
+    if(_checkResponse() == DHT11_TIMEOUT_ERROR)
+        return last_read = _timeoutError();
+    
+    /* Read response */
+    for(int i = 0; i < 40; i++) {
+        /* Initial data */
+        if(_waitOrTimeout(50, 0) == DHT11_TIMEOUT_ERROR)
+            return last_read = _timeoutError();
+                
+        if(_waitOrTimeout(70, 1) > 28) {
+            /* Bit received was a 1 */
+            data[i/8] |= (1 << (7-(i%8)));
+        }
+    }
+
+    if(_checkCRC(data) != DHT11_CRC_ERROR) {
+        last_read.status = DHT11_OK;
+        last_read.temperature = data[2];
+        last_read.humidity = data[0];
+        return last_read;
+    } else {
+        return last_read = _crcError();
+    }
 }

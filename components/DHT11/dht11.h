@@ -1,39 +1,51 @@
-#ifndef DHT11_H
-#define DHT11_H
+
+/*
+ * MIT License
+ * 
+ * Copyright (c) 2018 Michele Biondi
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+*/
+
+#ifndef DHT11_H_
+#define DHT11_H_
 
 #include "driver/gpio.h"
-#include "esp_err.h"
 
-// 配置DHT11数据引脚，可根据硬件修改
-#define DHT11_GPIO_PIN    GPIO_NUM_4
+enum dht11_status {
+    DHT11_CRC_ERROR = -2,
+    DHT11_TIMEOUT_ERROR,
+    DHT11_OK
+};
 
-// DHT11数据结构体
-typedef struct {
-    uint8_t humidity_int;    // 湿度整数部分
-    uint8_t humidity_dec;    // 湿度小数部分（DHT11固定为0）
-    uint8_t temp_int;        // 温度整数部分
-    uint8_t temp_dec;        // 温度小数部分（DHT11固定为0）
-} dht11_data_t;
+struct dht11_reading {
+    int status;
+    int temperature;
+    int humidity;
+};
 
-// 函数返回状态枚举
-typedef enum {
-    DHT11_OK = 0,             // 读取成功
-    DHT11_ERR_TIMEOUT,        // 通信超时
-    DHT11_ERR_CRC,            // 校验和错误
-    DHT11_ERR_NO_RESPONSE     // 传感器无响应
-} dht11_err_t;
+void DHT11_init(gpio_num_t);
 
-/**
- * @brief  初始化DHT11的GPIO引脚
- * @return 无
- */
-void dht11_init(void);
+struct dht11_reading DHT11_read();
 
-/**
- * @brief  读取DHT11温湿度数据
- * @param  data 指向存储解析后数据的结构体指针
- * @return dht11_err_t 状态码
- */
-dht11_err_t dht11_read(dht11_data_t *data);
 
-#endif // DHT11_H
+
+
+
+#endif

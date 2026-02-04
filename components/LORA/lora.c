@@ -11,7 +11,7 @@ void lora_init(void)
     // 硬件流控阈值，因未开启流控，此处随意设置一个值
     // 默认时钟线
     // 一位停止位
-    uart_config_t uart_structure = {
+    uart_config_t lora_cfg = {
         .baud_rate = 9600,
         .data_bits = UART_DATA_8_BITS,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
@@ -21,7 +21,7 @@ void lora_init(void)
         .stop_bits = UART_STOP_BITS_1,
     };
 
-    uart_param_config(UART_NUM_1, &uart_structure);
+    uart_param_config(UART_NUM_1, &lora_cfg);
 
     // uart1引脚为pin17&pin18，pin17为u1txd，pin18为u1rxd
     uart_set_pin(UART_NUM_1, GPIO_NUM_17, GPIO_NUM_18, -1, -1);   
