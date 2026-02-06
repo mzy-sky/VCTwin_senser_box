@@ -15,6 +15,16 @@ void app_main()
     DHT11_init(GPIO_NUM_4);
     lcd_init();
 
+    lcd_show_string(2,3,"VCTwin",WHITE,BLACK);
+    vTaskDelay(300);
+    lcd_clear(BLACK);
+    lcd_show_string(2,1,"v1.0",WHITE,BLACK);
+    lcd_show_string(1,1,"Ma Design",WHITE,BLACK);
+    vTaskDelay(333);
+    lcd_clear(BLACK);
+    
+    
+    
     // 创建一个任务周期性读取 DHT11 并在 LCD 上显示
     extern void vTaskDelay(const TickType_t xTicksToDelay);
 
@@ -24,16 +34,17 @@ void app_main()
         for(;;) {
             reading = DHT11_read();
             if (reading.status == DHT11_OK) {
+                lcd_off();
                 sprintf(buf, "Temp:%dC", reading.temperature);
-                lcd_show_string(1, 1, buf, WHITE, BLACK);
+                lcd_show_string(1, 1, buf, GREEN, WHITE);
                 sprintf(buf, "Hum :%d%%", reading.humidity);
-                lcd_show_string(2, 1, buf, WHITE, BLACK);
+                lcd_show_string(2, 1, buf,  BLUE, WHITE);
             } else if (reading.status == DHT11_TIMEOUT_ERROR) {
-                lcd_show_string(1, 1, "DHT11 TIMEOUT", WHITE, BLACK);
+                lcd_show_string(1, 1, "DHT11 TIMEOUT", RED, BLACK);
             } else if (reading.status == DHT11_CRC_ERROR) {
-                lcd_show_string(1, 1, "DHT11 CRC ERR", WHITE, BLACK);
+                lcd_show_string(1, 1, "DHT11 CRC ERR", RED, BLACK);
             } else {
-                lcd_show_string(1, 1, "DHT11 ERR", WHITE, BLACK);
+                lcd_show_string(1, 1, "DHT11 ERR", RED, BLACK);
             }
             vTaskDelay(2000 / portTICK_PERIOD_MS);
         }

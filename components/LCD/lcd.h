@@ -38,6 +38,7 @@ void lcd_hard_reset(void);
 void lcd_set_window(uint16_t xstar, uint16_t ystar,uint16_t xend,uint16_t yend);
 void lcd_clear(uint16_t color);
 void lcd_init(void);
+void lcd_off(void);
 
 void lcd_set_cursor(uint16_t xpos, uint16_t ypos);
 void lcd_draw_pixel(uint16_t x, uint16_t y, uint16_t color);

@@ -17,5 +17,6 @@
     "--compile-commands-dir=d:\\DevFolder\\vscode\\esp32\\s3\\VCTwin_senser_box\\build"
   ],
   "idf.flashType": "UART",
-  "C_Cpp.errorSquiggles": "enabled"
+  "C_Cpp.errorSquiggles": "disabled",
+  "idf.currentSetup": "d:\\Espressif\\container\\v5.5.2\\esp-idf"
 }
